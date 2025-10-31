@@ -1,4 +1,4 @@
-# React Tetris
+# React node project
 
 > Fully responsive tetris game built with ReactJS
 
@@ -18,3 +18,4 @@
   <img width="35%" alt="React tetris mobile 1" title="#React tetris mobile 1" src="/assets/react-tetris-mobile-1.png" />
 
 </h1>
+
