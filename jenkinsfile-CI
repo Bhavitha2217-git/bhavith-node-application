@@ -1,0 +1,88 @@
+pipeline {
+    agent any
+
+    environment {
+        BRANCH_NAME = 'main'
+        ECR_REPO = '606891810045.dkr.ecr.us-east-1.amazonaws.com/bhavitha-node-app'
+        GIT_TOKEN = credentials('GIT_TOKEN')
+    }
+
+    stages {
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage('Clone Repo') {
+            steps {
+                git branch: "${BRANCH_NAME}",
+                    credentialsId: 'github_token', // fixed: no $ needed here
+                    url: "https://github.com/Bhavitha2217-git/bhavith-node-application.git"
+            }
+        }
+
+        stage('Fetch Commit ID') {
+            steps {
+                script {
+                    sh 'env'
+                    sh 'ls -al'
+                    sh 'chmod +x get-commit.sh'
+                    env.COMMIT_ID = sh(script: './get-commit.sh', returnStdout: true).trim()
+                    echo "Commit ID: ${env.COMMIT_ID}"
+                    env.ECR_PUBLISH_IMAGE_TAG = "${ECR_REPO}:${env.COMMIT_ID}"
+                    echo "ECR Publish Image Tag: ${env.ECR_PUBLISH_IMAGE_TAG}"
+                }
+            }
+        }
+
+        stage('Build and Tag Docker Image') {
+            steps {
+                script {
+                    sh """
+                        echo "Building Docker image..."
+                        docker build -t ${ECR_REPO}:latest .
+
+                        echo "Tagging Docker image..."
+                        docker tag ${ECR_REPO}:latest ${ECR_PUBLISH_IMAGE_TAG}
+
+                        echo "Listing Docker images..."
+                        docker images
+                    """
+                }
+            }
+        }
+
+        stage('Login and Push to ECR') {
+            steps {
+                script {
+                    sh """
+                        echo "Logging in to ECR..."
+                        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 972531737671.dkr.ecr.us-east-1.amazonaws.com
+
+                        echo "Pushing Docker image to ECR..."
+                        docker push ${ECR_PUBLISH_IMAGE_TAG}
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            sh """
+                echo "Pipeline succeeded!"
+                echo "Image published to: ${ECR_PUBLISH_IMAGE_TAG}"
+
+                # Clean up local images
+                docker rmi ${ECR_REPO}:latest ${ECR_PUBLISH_IMAGE_TAG} || true
+                docker image prune -a -f
+                docker images
+            """
+        }
+
+        failure {
+            sh 'echo "Pipeline failed!"'
+        }
+    }
+}
