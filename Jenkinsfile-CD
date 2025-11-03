@@ -1,0 +1,80 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'ECR Image Tag to deploy')
+    }
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        CLUSTER_NAME = 'bhavitha-deployments-EKS-Cluster'
+        GIT_REPO = 'https://github.com/Bhavitha2217-git/bhavitha-manifestfiles.git'
+        BRANCH = 'main'
+        ECR_REPO = '606891810045.dkr.ecr.us-east-1.amazonaws.com/bhavitha-node-app'
+        NAMESPACE = 'dev'
+    }
+
+    stages {
+        stage('Checkout Manifests Repo') {
+            steps {
+                git branch: "${BRANCH}", url: "${GIT_REPO}"
+            }
+        }
+
+        stage('Configure Access to EKS') {
+            steps {
+                sh '''
+                echo "Configuring kubeconfig for ${CLUSTER_NAME}..."
+                aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
+                kubectl get nodes
+                '''
+            }
+        }
+
+        stage('Prepare Namespace') {
+            steps {
+                sh '''
+                echo "Ensuring namespace ${NAMESPACE} exists..."
+                kubectl get ns ${NAMESPACE} || kubectl create ns ${NAMESPACE}
+                '''
+            }
+        }
+
+        stage('Update Manifests with Image Tag') {
+            steps {
+                sh '''
+                echo "Updating deployment image to tag ${IMAGE_TAG} ..."
+                sed -i "s|image:.*|image: ${ECR_REPO}:${IMAGE_TAG}|g" deployment-service.yaml
+                '''
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                sh '''
+                echo "Deploying to namespace ${NAMESPACE} ..."
+                kubectl apply -n ${NAMESPACE} -f .
+                '''
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                sh '''
+                echo "Verifying deployment rollout..."
+                kubectl rollout status deployment/tetris-project -n ${NAMESPACE}
+                kubectl get pods -n ${NAMESPACE} -o wide
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Successfully deployed image tag: ${params.IMAGE_TAG} to namespace ${NAMESPACE}"
+        }
+        failure {
+            echo "❌ Deployment failed for image tag: ${params.IMAGE_TAG} in namespace ${NAMESPACE}"
+        }
+    }
+}
